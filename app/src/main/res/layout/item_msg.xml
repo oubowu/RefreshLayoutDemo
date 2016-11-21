@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="40dp"
+    android:background="#ffffff"
+    >
+
+    <TextView
+        android:id="@+id/tv_failed"
+        android:text="加载失败，请点击重试！"
+        android:textSize="14dp"
+        android:gravity="center"
+        android:lines="1"
+        android:textColor="?android:attr/textColorPrimary"
+        android:layout_gravity="center"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"/>
+
+</FrameLayout>

@@ -1,0 +1,52 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+      xmlns:app="http://schemas.android.com/apk/res-auto"
+      xmlns:tools="http://schemas.android.com/tools"
+      tools:context="com.oubowu.refreshlayoutdemo.MainActivity">
+
+    <group android:checkableBehavior="single">
+        <item
+            android:id="@+id/action_disscroll"
+            android:checked="true"
+            android:orderInCategory="100"
+            android:title="不能滑动View"
+            app:showAsAction="never"/>
+
+        <item
+            android:id="@+id/action_listview"
+            android:orderInCategory="100"
+            android:title="ListView"
+            app:showAsAction="never"/>
+
+        <item
+            android:id="@+id/action_nested_scrollview"
+            android:orderInCategory="100"
+            android:title="NestedScrollView"
+            app:showAsAction="never"/>
+
+        <item
+            android:id="@+id/action_recyclerview"
+            android:orderInCategory="100"
+            android:title="RecyclerView"
+            app:showAsAction="never"/>
+
+        <item
+            android:id="@+id/action_scrollview"
+            android:orderInCategory="100"
+            android:title="ScrollView"
+            app:showAsAction="never"/>
+
+        <item
+            android:id="@+id/action_webview"
+            android:orderInCategory="100"
+            android:title="WebView"
+            app:showAsAction="never"/>
+
+        <item
+            android:id="@+id/action_view_pager"
+            android:orderInCategory="100"
+            android:title="ViewPager"
+            app:showAsAction="never"/>
+    </group>
+
+
+</menu>
