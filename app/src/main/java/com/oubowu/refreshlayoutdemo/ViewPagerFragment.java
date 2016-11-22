@@ -82,6 +82,9 @@ public class ViewPagerFragment extends Fragment {
                 mRefreshLayout.postDelayed(new Runnable() {
                     @Override
                     public void run() {
+                        if (getActivity() == null) {
+                            return;
+                        }
                         Log.e("MainActivity", "63行-run(): " + "刷新完毕");
                         Toast.makeText(getActivity(), "刷新完毕", Toast.LENGTH_SHORT).show();
                         mRefreshLayout.setRefreshing(false);

@@ -81,8 +81,8 @@ public class WebViewFragment extends Fragment {
                         Log.e("MainActivity", "63行-run(): " + "刷新完毕");
                         if (getActivity() != null) {
                             Toast.makeText(getActivity(), "刷新完毕", Toast.LENGTH_SHORT).show();
+                            mRefreshLayout.setRefreshing(false);
                         }
-                        mRefreshLayout.setRefreshing(false);
                     }
                 }, 2000);
             }

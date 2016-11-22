@@ -7,9 +7,11 @@ import android.content.Context;
 import android.graphics.Color;
 import android.os.Build;
 import android.support.v4.view.ScrollingView;
+import android.support.v4.view.ViewCompat;
 import android.support.v4.widget.NestedScrollView;
 import android.support.v7.widget.RecyclerView;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -85,6 +87,16 @@ public class RefreshLayout extends LinearLayout {
         super(context, attrs, defStyleAttr);
         init();
         addHeader(context);
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        if (mHeaderAnimator != null && mHeaderAnimator.isRunning()) {
+            mHeaderAnimator.removeAllUpdateListeners();
+            mHeaderAnimator.removeAllListeners();
+            mHeaderAnimator.cancel();
+        }
     }
 
     private void init() {
@@ -171,7 +183,8 @@ public class RefreshLayout extends LinearLayout {
             // 为空抛异常，强制要求在XML设置内容控件
             throw new IllegalArgumentException("You must add a content view!");
         }
-        if (!(mContentView instanceof ScrollingView || mContentView instanceof WebView || mContentView instanceof ScrollView || mContentView instanceof AbsListView)) {
+        if (!(ViewCompat.isNestedScrollingEnabled(
+                mContentView) && mContentView instanceof ScrollingView || mContentView instanceof WebView || mContentView instanceof ScrollView || mContentView instanceof AbsListView)) {
             // 不是具有滚动的控件，这里设置标志位
             mContentViewScrollable = false;
         }
@@ -232,8 +245,9 @@ public class RefreshLayout extends LinearLayout {
             }
             case MotionEvent.ACTION_CANCEL:
             case MotionEvent.ACTION_UP: {
-                if (mContentViewOffset == 0 && isHeaderShowing()) {
+                if (/*mContentViewOffset == 0 && */isHeaderShowing()) {
                     // 处理手指抬起或取消事件
+                    Log.e("RefreshLayout", "247行-dispatchTouchEvent(): " + event.getAction());
                     onHandleTouchEvent(event);
                 }
                 mTotalDeltaY = 0;
@@ -263,7 +277,7 @@ public class RefreshLayout extends LinearLayout {
 
         int y = (int) event.getY();
 
-        switch (event.getAction()) {
+        switch (event.getActionMasked()) {
             case MotionEvent.ACTION_MOVE: {
                 // 拿到Y方向位移
                 int deltaY = y - mLastY;
@@ -271,12 +285,8 @@ public class RefreshLayout extends LinearLayout {
                 deltaY /= 3;
                 // 计算出移动后的头部位置
                 int top = deltaY + mHeader.getPaddingTop();
-                // 控制头部位置最大不超过-mHeaderHeight
-                if (top < -mHeaderHeight) {
-                    mHeader.setPadding(0, -mHeaderHeight, 0, 0);
-                } else {
-                    mHeader.setPadding(0, top, 0, 0);
-                }
+                // 控制头部位置最小不超过-mHeaderHeight，最大不超过mHeaderHeight * 4
+                mHeader.setPadding(0, Math.min(Math.max(top, -mHeaderHeight), mHeaderHeight * 3), 0, 0);
                 if (mCurrentState == REFRESHING) {
                     // 之前还在刷新状态，继续维持刷新状态
                     mHeader.setText("正在刷新...");
@@ -317,6 +327,18 @@ public class RefreshLayout extends LinearLayout {
                 }
                 break;
             }
+            case MotionEvent.ACTION_CANCEL:
+                mHeaderAnimator.setIntValues(mHeader.getPaddingTop(), -mHeaderHeight);
+                if (mHeader.getPaddingTop() <= 0) {
+                    mHeaderAnimator.setDuration((long) (DEFAULT_DURATION * 1.0 / mHeaderHeight * (mHeader.getPaddingTop() + mHeaderHeight)));
+                } else {
+                    mHeaderAnimator.setDuration(DEFAULT_DURATION);
+                }
+                mHeaderAnimator.start();
+                // 下拉状态的话，把状态改为正在隐藏头部状态
+                mCurrentState = HIDING;
+                mHeader.setText("收回头部...");
+                break;
             default:
                 break;
         }
