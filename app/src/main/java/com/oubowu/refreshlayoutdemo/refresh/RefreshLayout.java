@@ -6,6 +6,7 @@ import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Color;
 import android.os.Build;
+import android.support.v4.view.MotionEventCompat;
 import android.support.v4.view.ScrollingView;
 import android.support.v4.view.ViewCompat;
 import android.support.v4.widget.NestedScrollView;
@@ -24,6 +25,8 @@ import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.ScrollView;
 import android.widget.TextView;
+
+import static android.support.v4.widget.ViewDragHelper.INVALID_POINTER;
 
 /**
  * Created by Oubowu on 2016/11/20 0:40.
@@ -50,22 +53,25 @@ public class RefreshLayout extends LinearLayout {
     private int mHeaderHeight;
     // 内容控件的滑动距离
     private int mContentViewOffset;
-    // 记录上次的Y坐标
-    private int mLastY;
     // 最小滑动响应距离
     private int mScaledTouchSlop;
-    // 滑动的偏移量
-    private int mTotalDeltaY;
+    // 记录上次的Y坐标
+    private float mLastMotionY;
+    // 记录一开始的Y坐标
+    private float mInitDownY;
+    // 响应的手指
+    private int mActivePointerId;
 
     // 是否在处理头部
     private boolean mIsHeaderHandling;
     // 是否可以下拉刷新
     private boolean mIsRefreshable = true;
+
     // 内容控件是否可以滑动，不能滑动的控件会做触摸事件的优化
     private boolean mContentViewScrollable = true;
-
     // 头部，为了方便演示选取了TextView
     private TextView mHeader;
+
     // 容器要承载的内容控件，在XML里面要放置好
     private View mContentView;
 
@@ -139,7 +145,11 @@ public class RefreshLayout extends LinearLayout {
         });
     }
 
-    // 头部的创建
+    /**
+     * 创建头部
+     *
+     * @param context 上下文
+     */
     private void addHeader(Context context) {
 
         // 强制垂直方法
@@ -205,25 +215,65 @@ public class RefreshLayout extends LinearLayout {
             return true;
         }
 
-        int y = (int) event.getY();
+        // 支持多指触控
+        int actionMasked = MotionEventCompat.getActionMasked(event);
 
-        switch (event.getAction()) {
-            case MotionEvent.ACTION_DOWN:
-                break;
+        switch (actionMasked) {
+
+            case MotionEvent.ACTION_DOWN: {
+                // 记录响应的手指
+                mActivePointerId = event.getPointerId(0);
+                // 记录初始Y坐标
+                mInitDownY = mLastMotionY = event.getY(0);
+            }
+            break;
+
+            case MotionEvent.ACTION_POINTER_DOWN: {
+                // 另外一根手指按下，切换到这个手指响应
+                int pointerDownIndex = MotionEventCompat.getActionIndex(event);
+                if (pointerDownIndex < 0) {
+                    Log.e("RefreshLayout", "296行-dispatchTouchEvent(): " + "Got ACTION_POINTER_DOWN event but have an invalid action index.");
+                    return dispatchTouchEvent(event);
+                }
+                mActivePointerId = event.getPointerId(pointerDownIndex);
+                mLastMotionY = event.getY(pointerDownIndex);
+            }
+            break;
+
+            case MotionEvent.ACTION_POINTER_UP: {
+                // 另外一根手指抬起，切换回其他手指响应
+                final int pointerUpIndex = MotionEventCompat.getActionIndex(event);
+                final int pointerId = event.getPointerId(pointerUpIndex);
+                if (pointerId == mActivePointerId) {
+                    // 抬起手指就是之前控制滑动手指，切换其他手指响应
+                    final int newPointerIndex = pointerUpIndex == 0 ? 1 : 0;
+                    mActivePointerId = event.getPointerId(newPointerIndex);
+                }
+                mLastMotionY = event.getY(event.findPointerIndex(mActivePointerId));
+            }
+            break;
+
             case MotionEvent.ACTION_MOVE: {
-                int deltaY = y - mLastY;
+                // 移动事件
+                if (mActivePointerId == INVALID_POINTER) {
+                    Log.e("RefreshLayout", "235行-dispatchTouchEvent(): " + "Got ACTION_MOVE event but don't have an active pointer id.");
+                    return dispatchTouchEvent(event);
+                }
 
-                if (mContentViewOffset == 0 && (deltaY > 0 || (deltaY < 0 && isHeaderShowing()))) {
-                    // 偏移值为0时，下拉或者在头部还在显示的时候上滑时，交由自己处理滑动事件
-                    mTotalDeltaY += deltaY;
+                float y = event.getY(event.findPointerIndex(mActivePointerId));
+                // 移动的偏移量
+                float yDiff = y - mLastMotionY;
+                mLastMotionY = y;
 
-                    if (mTotalDeltaY > 0 && mTotalDeltaY <= mScaledTouchSlop && !isHeaderShowing()) {
-                        // 优化下拉头部，不要稍微一点位移就响应
-                        mLastY = y;
+                if (mContentViewOffset == 0 && (yDiff > 0 || (yDiff < 0 && isHeaderShowing()))) {
+                    // 内容控件还没滚动时，下拉或者在头部还在显示的时候上滑时，交由自己处理滑动事件
+
+                    // 滑动的总距离
+                    float totalDistanceY = mLastMotionY - mInitDownY;
+                    if (totalDistanceY > 0 && totalDistanceY <= mScaledTouchSlop && yDiff > 0) {
+                        // 下拉时，优化滑动逻辑，不要稍微一点位移就响应
                         return super.dispatchTouchEvent(event);
                     }
-
-                    onHandleTouchEvent(event);
 
                     // 正在处理事件
                     mIsHeaderHandling = true;
@@ -233,118 +283,110 @@ public class RefreshLayout extends LinearLayout {
                         event.setAction(MotionEvent.ACTION_CANCEL);
                     }
 
+                    // 处理下拉头部
+                    scrollHeader(yDiff);
+
+                    break;
+
                 } else if (mIsHeaderHandling) {
                     // 在头部隐藏的那一瞬间的事件特殊处理
                     if (mContentViewScrollable) {
-                        // 可滑动的View，由于之前处理头部，之前的MOVE事件没有传递到内容页，这里需要ACTION_DOWN来重新告知滑动的起点，不然会瞬间滑动一段距离
+                        // 1.可滑动的View，由于之前处理头部，之前的MOVE事件没有传递到内容页，这里需要要ACTION_DOWN来重新告知滑动的起点，不然会瞬间滑动一段距离
+                        // 2.对于不滑动的View设置了点击事件，若这里给它一个ACTION_DOWN事件，在手指抬起时ACTION_UP事件会触发点击，因此这里做了处理
                         event.setAction(MotionEvent.ACTION_DOWN);
                     }
                     mIsHeaderHandling = false;
                 }
-                break;
             }
+            break;
+
             case MotionEvent.ACTION_CANCEL:
             case MotionEvent.ACTION_UP: {
-                if (/*mContentViewOffset == 0 && */isHeaderShowing()) {
-                    // 处理手指抬起或取消事件
-                    Log.e("RefreshLayout", "247行-dispatchTouchEvent(): " + event.getAction());
-                    onHandleTouchEvent(event);
+                // 处理手指抬起或取消事件
+                mActivePointerId = INVALID_POINTER;
+                if (isHeaderShowing()) {
+                    // 头部显示情况下
+                    if (actionMasked == MotionEvent.ACTION_CANCEL) {
+                        // 取消的话强制不能刷新，状态改为下拉刷新，接下来autoScrollHeader就会隐藏头部
+                        mCurrentState = PULL_TO_REFRESH;
+                    }
+                    autoScrollHeader();
                 }
-                mTotalDeltaY = 0;
-                break;
             }
+            break;
+
             default:
                 break;
         }
 
-        mLastY = y;
-
-        if (mCurrentState != REFRESHING && isHeaderShowing() && event.getAction() != MotionEvent.ACTION_UP) {
-            // 不是在刷新的时候，并且头部在显示， 不让contentView响应事件
+        if (mCurrentState != REFRESHING && isHeaderShowing() && actionMasked != MotionEvent.ACTION_UP && actionMasked != MotionEvent.ACTION_POINTER_UP) {
+            // 不是在刷新的时候，并且头部在显示， 某些情况下不让contentView响应事件
             event.setAction(MotionEvent.ACTION_CANCEL);
         }
 
         return super.dispatchTouchEvent(event);
     }
 
-    // 头部是否在显示，通过PaddingTop即可知道
-    private boolean isHeaderShowing() {
-        return mHeader.getPaddingTop() > -mHeaderHeight;
+    /**
+     * 拉动头部
+     *
+     * @param diff 拉动距离
+     */
+    private void scrollHeader(float diff) {
+        // 除以3相当于阻尼值
+        diff /= 3;
+        // 计算出移动后的头部位置
+        int top = (int) (diff + mHeader.getPaddingTop());
+        // 控制头部位置最小不超过-mHeaderHeight，最大不超过mHeaderHeight * 4
+        mHeader.setPadding(0, Math.min(Math.max(top, -mHeaderHeight), mHeaderHeight * 3), 0, 0);
+        if (mCurrentState == REFRESHING) {
+            // 之前还在刷新状态，继续维持刷新状态
+            mHeader.setText("正在刷新...");
+            return;
+        }
+        if (mHeader.getPaddingTop() > mHeaderHeight / 2) {
+            // 大于mHeaderHeight / 2时可以刷新了
+            mHeader.setText("可以释放刷新...");
+            mCurrentState = RELEASE_TO_REFRESH;
+        } else {
+            // 下拉状态
+            mHeader.setText("正在下拉...");
+            mCurrentState = PULL_TO_REFRESH;
+        }
     }
 
-    // 自己处理事件
-    public boolean onHandleTouchEvent(MotionEvent event) {
-
-        int y = (int) event.getY();
-
-        switch (event.getActionMasked()) {
-            case MotionEvent.ACTION_MOVE: {
-                // 拿到Y方向位移
-                int deltaY = y - mLastY;
-                // 除以3相当于阻尼值
-                deltaY /= 3;
-                // 计算出移动后的头部位置
-                int top = deltaY + mHeader.getPaddingTop();
-                // 控制头部位置最小不超过-mHeaderHeight，最大不超过mHeaderHeight * 4
-                mHeader.setPadding(0, Math.min(Math.max(top, -mHeaderHeight), mHeaderHeight * 3), 0, 0);
-                if (mCurrentState == REFRESHING) {
-                    // 之前还在刷新状态，继续维持刷新状态
-                    mHeader.setText("正在刷新...");
-                    break;
-                }
-                if (mHeader.getPaddingTop() > mHeaderHeight / 2) {
-                    // 大于mHeaderHeight / 2时可以刷新了
-                    mHeader.setText("可以释放刷新...");
-                    mCurrentState = RELEASE_TO_REFRESH;
-                } else {
-                    // 下拉状态
-                    mHeader.setText("正在下拉...");
-                    mCurrentState = PULL_TO_REFRESH;
-                }
-                break;
+    /**
+     * 执行头部显示或隐藏滑动
+     */
+    private void autoScrollHeader() {
+        // 处理抬起事件
+        if (mCurrentState == RELEASE_TO_REFRESH) {
+            // 释放刷新状态，手指抬起，通过动画实现头部回到（0，0）位置
+            mHeaderAnimator.setIntValues(mHeader.getPaddingTop(), 0);
+            mHeaderAnimator.setDuration(DEFAULT_DURATION);
+            mHeaderAnimator.start();
+            mHeader.setText("正在释放...");
+        } else if (mCurrentState == PULL_TO_REFRESH || mCurrentState == REFRESHING) {
+            // 下拉状态或者正在刷新状态，通过动画隐藏头部
+            mHeaderAnimator.setIntValues(mHeader.getPaddingTop(), -mHeaderHeight);
+            if (mHeader.getPaddingTop() <= 0) {
+                mHeaderAnimator.setDuration((long) (DEFAULT_DURATION * 1.0 / mHeaderHeight * (mHeader.getPaddingTop() + mHeaderHeight)));
+            } else {
+                mHeaderAnimator.setDuration(DEFAULT_DURATION);
             }
-            case MotionEvent.ACTION_UP: {
-                if (mCurrentState == RELEASE_TO_REFRESH) {
-                    // 释放刷新状态，手指抬起，通过动画实现头部回到（0，0）位置
-                    mHeaderAnimator.setIntValues(mHeader.getPaddingTop(), 0);
-                    mHeaderAnimator.setDuration(DEFAULT_DURATION);
-                    mHeaderAnimator.start();
-                    mHeader.setText("正在释放...");
-                } else if (mCurrentState == PULL_TO_REFRESH || mCurrentState == REFRESHING) {
-                    // 下拉状态或者正在刷新状态，通过动画隐藏头部
-                    mHeaderAnimator.setIntValues(mHeader.getPaddingTop(), -mHeaderHeight);
-                    if (mHeader.getPaddingTop() <= 0) {
-                        mHeaderAnimator.setDuration((long) (DEFAULT_DURATION * 1.0 / mHeaderHeight * (mHeader.getPaddingTop() + mHeaderHeight)));
-                    } else {
-                        mHeaderAnimator.setDuration(DEFAULT_DURATION);
-                    }
-                    mHeaderAnimator.start();
-                    if (mCurrentState == PULL_TO_REFRESH) {
-                        // 下拉状态的话，把状态改为正在隐藏头部状态
-                        mCurrentState = HIDING;
-                        mHeader.setText("收回头部...");
-                    }
-                }
-                break;
-            }
-            case MotionEvent.ACTION_CANCEL:
-                mHeaderAnimator.setIntValues(mHeader.getPaddingTop(), -mHeaderHeight);
-                if (mHeader.getPaddingTop() <= 0) {
-                    mHeaderAnimator.setDuration((long) (DEFAULT_DURATION * 1.0 / mHeaderHeight * (mHeader.getPaddingTop() + mHeaderHeight)));
-                } else {
-                    mHeaderAnimator.setDuration(DEFAULT_DURATION);
-                }
-                mHeaderAnimator.start();
+            mHeaderAnimator.start();
+            if (mCurrentState == PULL_TO_REFRESH) {
                 // 下拉状态的话，把状态改为正在隐藏头部状态
                 mCurrentState = HIDING;
                 mHeader.setText("收回头部...");
-                break;
-            default:
-                break;
+            }
         }
+    }
 
-        mLastY = y;
-        return super.onTouchEvent(event);
+
+    // 头部是否在显示，通过PaddingTop即可知道
+    private boolean isHeaderShowing() {
+        return mHeader.getPaddingTop() > -mHeaderHeight;
     }
 
     public interface OnRefreshListener {
