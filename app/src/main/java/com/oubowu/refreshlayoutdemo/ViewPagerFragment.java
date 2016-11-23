@@ -74,7 +74,7 @@ public class ViewPagerFragment extends Fragment {
         View view = inflater.inflate(R.layout.fragment_view_pager, container, false);
 
         mRefreshLayout = (RefreshLayout) view.findViewById(R.id.refresh_layout);
-        mRefreshLayout.setRefreshing(true);
+//        mRefreshLayout.setRefreshing(true);
         mRefreshLayout.setOnRefreshListener(new RefreshLayout.OnRefreshListener() {
             @Override
             public void onRefresh() {

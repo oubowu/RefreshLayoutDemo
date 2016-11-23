@@ -87,9 +87,6 @@ public class DisscrollViewFragment extends Fragment {
             }
         });
 
-        // ImageView不能滚动，告知一下
-        mRefreshLayout.notifyContentViewScrollable(false);
-
         mImageView = (ImageView) view.findViewById(R.id.view);
 
         Glide.with(getActivity()).load(R.mipmap.ic_cheasle).placeholder(R.mipmap.ic_cheasle).dontAnimate().into(mImageView);

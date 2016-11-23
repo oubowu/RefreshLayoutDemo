@@ -7,8 +7,6 @@ import android.content.Context;
 import android.graphics.Color;
 import android.os.Build;
 import android.support.v4.view.MotionEventCompat;
-import android.support.v4.view.ScrollingView;
-import android.support.v4.view.ViewCompat;
 import android.support.v4.widget.NestedScrollView;
 import android.support.v7.widget.RecyclerView;
 import android.util.AttributeSet;
@@ -67,8 +65,6 @@ public class RefreshLayout extends LinearLayout {
     // 是否可以下拉刷新
     private boolean mIsRefreshable = true;
 
-    // 内容控件是否可以滑动，不能滑动的控件会做触摸事件的优化
-    private boolean mContentViewScrollable = true;
     // 头部，为了方便演示选取了TextView
     private TextView mHeader;
 
@@ -80,6 +76,9 @@ public class RefreshLayout extends LinearLayout {
 
     // 刷新的监听器
     private OnRefreshListener mOnRefreshListener;
+    private boolean mIsMoveHappened;
+    // 用于判断是否响应在刷新的状态下的点击事件
+    private boolean mIsDragBeyondLimit;
 
     public RefreshLayout(Context context) {
         this(context, null);
@@ -193,17 +192,13 @@ public class RefreshLayout extends LinearLayout {
             // 为空抛异常，强制要求在XML设置内容控件
             throw new IllegalArgumentException("You must add a content view!");
         }
-        if (!(ViewCompat.isNestedScrollingEnabled(
-                mContentView) && mContentView instanceof ScrollingView || mContentView instanceof WebView || mContentView instanceof ScrollView || mContentView instanceof AbsListView)) {
-            // 不是具有滚动的控件，这里设置标志位
-            mContentViewScrollable = false;
-        }
 
     }
 
 
     @Override
     public boolean dispatchTouchEvent(final MotionEvent event) {
+
 
         if (!mIsRefreshable) {
             // 禁止下拉刷新，直接把事件分发
@@ -233,7 +228,7 @@ public class RefreshLayout extends LinearLayout {
                 int pointerDownIndex = MotionEventCompat.getActionIndex(event);
                 if (pointerDownIndex < 0) {
                     Log.e("RefreshLayout", "296行-dispatchTouchEvent(): " + "Got ACTION_POINTER_DOWN event but have an invalid action index.");
-                    return dispatchTouchEvent(event);
+                    return super.dispatchTouchEvent(event);
                 }
                 mActivePointerId = event.getPointerId(pointerDownIndex);
                 mLastMotionY = event.getY(pointerDownIndex);
@@ -257,10 +252,20 @@ public class RefreshLayout extends LinearLayout {
                 // 移动事件
                 if (mActivePointerId == INVALID_POINTER) {
                     Log.e("RefreshLayout", "235行-dispatchTouchEvent(): " + "Got ACTION_MOVE event but don't have an active pointer id.");
-                    return dispatchTouchEvent(event);
+                    return super.dispatchTouchEvent(event);
                 }
 
-                float y = event.getY(event.findPointerIndex(mActivePointerId));
+                float y;
+                try {
+                    y = event.getY(event.findPointerIndex(mActivePointerId));
+                } catch (IllegalArgumentException e) {
+                    e.printStackTrace();
+                    Log.e("RefreshLayout", e.getMessage());
+                    mActivePointerId = event.getPointerId(MotionEventCompat.getActionIndex(event));
+                    mLastMotionY = event.getY(event.findPointerIndex(mActivePointerId));
+                    y = event.getY(event.findPointerIndex(mActivePointerId));
+                }
+
                 // 移动的偏移量
                 float yDiff = y - mLastMotionY;
                 mLastMotionY = y;
@@ -269,32 +274,30 @@ public class RefreshLayout extends LinearLayout {
                     // 内容控件还没滚动时，下拉或者在头部还在显示的时候上滑时，交由自己处理滑动事件
 
                     // 滑动的总距离
-                    float totalDistanceY = mLastMotionY - mInitDownY;
-                    if (totalDistanceY > 0 && totalDistanceY <= mScaledTouchSlop && yDiff > 0) {
-                        // 下拉时，优化滑动逻辑，不要稍微一点位移就响应
-                        return super.dispatchTouchEvent(event);
+                    float totalDistanceY = y - mInitDownY;
+
+                    if (Math.abs(totalDistanceY) >= mScaledTouchSlop * 3) {
+                        mIsDragBeyondLimit = true;
                     }
 
-                    // 正在处理事件
-                    mIsHeaderHandling = true;
-
-                    if (mCurrentState == REFRESHING) {
-                        // 正在刷新，不让contentView响应滑动
-                        event.setAction(MotionEvent.ACTION_CANCEL);
+                    if (yDiff > 0 && totalDistanceY <= mScaledTouchSlop) {
+                        // 下拉时，优化滑动逻辑，不要稍微一点位移就响应
+                        return super.dispatchTouchEvent(event);
                     }
 
                     // 处理下拉头部
                     scrollHeader(yDiff);
 
+                    // 正在处理事件
+                    mIsHeaderHandling = true;
+
+                    mIsMoveHappened = true;
+
                     break;
 
-                } else if (mIsHeaderHandling) {
+                } else if (mIsHeaderHandling && yDiff < 0) {
                     // 在头部隐藏的那一瞬间的事件特殊处理
-                    if (mContentViewScrollable) {
-                        // 1.可滑动的View，由于之前处理头部，之前的MOVE事件没有传递到内容页，这里需要要ACTION_DOWN来重新告知滑动的起点，不然会瞬间滑动一段距离
-                        // 2.对于不滑动的View设置了点击事件，若这里给它一个ACTION_DOWN事件，在手指抬起时ACTION_UP事件会触发点击，因此这里做了处理
-                        event.setAction(MotionEvent.ACTION_DOWN);
-                    }
+                    event.setAction(MotionEvent.ACTION_DOWN);
                     mIsHeaderHandling = false;
                 }
             }
@@ -303,7 +306,6 @@ public class RefreshLayout extends LinearLayout {
             case MotionEvent.ACTION_CANCEL:
             case MotionEvent.ACTION_UP: {
                 // 处理手指抬起或取消事件
-                mActivePointerId = INVALID_POINTER;
                 if (isHeaderShowing()) {
                     // 头部显示情况下
                     if (actionMasked == MotionEvent.ACTION_CANCEL) {
@@ -312,6 +314,12 @@ public class RefreshLayout extends LinearLayout {
                     }
                     autoScrollHeader();
                 }
+                if (mIsMoveHappened && actionMasked == MotionEvent.ACTION_UP) {
+                    if (mCurrentState != REFRESHING || mIsDragBeyondLimit) {
+                        event.setAction(MotionEvent.ACTION_CANCEL);
+                    }
+                }
+                reset();
             }
             break;
 
@@ -319,12 +327,20 @@ public class RefreshLayout extends LinearLayout {
                 break;
         }
 
-        if (mCurrentState != REFRESHING && isHeaderShowing() && actionMasked != MotionEvent.ACTION_UP && actionMasked != MotionEvent.ACTION_POINTER_UP) {
-            // 不是在刷新的时候，并且头部在显示， 某些情况下不让contentView响应事件
+        if (isHeaderShowing() && !mHeaderAnimator.isRunning() && actionMasked == MotionEvent.ACTION_MOVE) {
+            // 头部在显示， 并且不是在执行动画，并且是移动事件，取消
             event.setAction(MotionEvent.ACTION_CANCEL);
         }
 
         return super.dispatchTouchEvent(event);
+    }
+
+    private void reset() {
+        mActivePointerId = INVALID_POINTER;
+        mIsMoveHappened = false;
+        mIsHeaderHandling = false;
+        mIsDragBeyondLimit = false;
+        mInitDownY = 0;
     }
 
     /**
@@ -337,8 +353,8 @@ public class RefreshLayout extends LinearLayout {
         diff /= 3;
         // 计算出移动后的头部位置
         int top = (int) (diff + mHeader.getPaddingTop());
-        // 控制头部位置最小不超过-mHeaderHeight，最大不超过mHeaderHeight * 4
-        mHeader.setPadding(0, Math.min(Math.max(top, -mHeaderHeight), mHeaderHeight * 3), 0, 0);
+        // 控制头部位置最小不超过-mHeaderHeight，最大不超过mHeaderHeight * 2
+        mHeader.setPadding(0, Math.min(Math.max(top, -mHeaderHeight), mHeaderHeight * 2), 0, 0);
         if (mCurrentState == REFRESHING) {
             // 之前还在刷新状态，继续维持刷新状态
             mHeader.setText("正在刷新...");
@@ -386,6 +402,7 @@ public class RefreshLayout extends LinearLayout {
 
     // 头部是否在显示，通过PaddingTop即可知道
     private boolean isHeaderShowing() {
+        // Log.e("RefreshLayout", "408行-isHeaderShowing(): " + mHeader.getPaddingTop() + "；" + -mHeaderHeight);
         return mHeader.getPaddingTop() > -mHeaderHeight;
     }
 
@@ -533,16 +550,6 @@ public class RefreshLayout extends LinearLayout {
             }
         }
 
-    }
-
-    /**
-     * 告知View是否可滑动，这个View对view instanceof ScrollingView || view instanceof WebView || view instanceof ScrollView || view instanceof AbsListView做了判断，
-     * 如果是其他可滚动的比如自定义的滚动，需要调这个方法告知
-     *
-     * @param contentViewScrollable true为可滑动
-     */
-    public void notifyContentViewScrollable(boolean contentViewScrollable) {
-        mContentViewScrollable = contentViewScrollable;
     }
 
 }

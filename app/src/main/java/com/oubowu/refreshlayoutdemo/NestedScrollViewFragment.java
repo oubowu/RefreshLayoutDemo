@@ -76,7 +76,7 @@ public class NestedScrollViewFragment extends Fragment {
         Glide.with(getActivity()).load(R.mipmap.ic_night_song).placeholder(R.mipmap.ic_night_song).dontAnimate().into(mImage);
 
         mRefreshLayout = (RefreshLayout) view.findViewById(R.id.refresh_layout);
-        mRefreshLayout.setRefreshing(true);
+//        mRefreshLayout.setRefreshing(true);
         mRefreshLayout.setOnRefreshListener(new RefreshLayout.OnRefreshListener() {
             @Override
             public void onRefresh() {
