@@ -319,6 +319,13 @@ public class RefreshLayout extends LinearLayout {
                 if (mIsMoveHappened && actionMasked == MotionEvent.ACTION_UP) {
                     if (mCurrentState != REFRESHING || mIsDragBeyondLimit) {
                         event.setAction(MotionEvent.ACTION_CANCEL);
+                    } else if (mCurrentState == REFRESHING) {
+                        // 正在刷新的时候一个事件序列，并且拖动没超过范围，可认为点击产生了
+                        // 由于之前有取消事件，这里模拟点击
+                        event.setAction(MotionEvent.ACTION_DOWN);
+                        super.dispatchTouchEvent(event);
+                        event.setAction(MotionEvent.ACTION_UP);
+                        return super.dispatchTouchEvent(event);
                     }
                 }
                 reset();
