@@ -17,6 +17,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewTreeObserver;
+import android.view.animation.DecelerateInterpolator;
 import android.webkit.WebView;
 import android.widget.AbsListView;
 import android.widget.LinearLayout;
@@ -109,6 +110,7 @@ public class RefreshLayout extends LinearLayout {
         mScaledTouchSlop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
 
         mHeaderAnimator = ValueAnimator.ofInt(0).setDuration(DEFAULT_DURATION);
+        mHeaderAnimator.setInterpolator(new DecelerateInterpolator());
         mHeaderAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
             @Override
             public void onAnimationUpdate(ValueAnimator valueAnimator) {
