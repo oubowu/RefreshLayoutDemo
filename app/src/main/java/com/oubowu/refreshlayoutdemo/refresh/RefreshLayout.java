@@ -80,6 +80,7 @@ public class RefreshLayout extends LinearLayout {
     private boolean mIsMoveHappened;
     // 用于判断是否响应在刷新的状态下的点击事件
     private boolean mIsDragBeyondLimit;
+    private int mInitActivePointerId;
 
     public RefreshLayout(Context context) {
         this(context, null);
@@ -222,6 +223,7 @@ public class RefreshLayout extends LinearLayout {
                 mActivePointerId = event.getPointerId(0);
                 // 记录初始Y坐标
                 mInitDownY = mLastMotionY = event.getY(0);
+                mInitActivePointerId = mActivePointerId;
             }
             break;
 
@@ -245,8 +247,12 @@ public class RefreshLayout extends LinearLayout {
                     // 抬起手指就是之前控制滑动手指，切换其他手指响应
                     final int newPointerIndex = pointerUpIndex == 0 ? 1 : 0;
                     mActivePointerId = event.getPointerId(newPointerIndex);
+                } else if (mInitActivePointerId == pointerId && mIsDragBeyondLimit) {
+                    // 防止第一个手指抬起时候响应点击事件
+                    event.setAction(MotionEvent.ACTION_CANCEL);
                 }
                 mLastMotionY = event.getY(event.findPointerIndex(mActivePointerId));
+
             }
             break;
 
@@ -345,7 +351,7 @@ public class RefreshLayout extends LinearLayout {
     }
 
     private void reset() {
-        mActivePointerId = INVALID_POINTER;
+        mInitActivePointerId = mActivePointerId = INVALID_POINTER;
         mIsMoveHappened = false;
         mIsHeaderHandling = false;
         mIsDragBeyondLimit = false;
